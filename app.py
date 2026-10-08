@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 import re
 import zipfile
 from urllib.parse import quote
@@ -82,15 +83,24 @@ def inat_photo(scientific):
         return {'url':url,'attribution':photo.get('attribution',''),'taxon_url':f'https://www.inaturalist.org/taxa/{taxon["id"]}'}
     except (requests.RequestException,ValueError,KeyError):return None
 
+# De meegeleverde export wordt bij iedere herstart automatisch ingelezen.
+DATA_FILE = Path(__file__).resolve().parent / 'data' / 'ebird.zip'
 with st.sidebar:
     st.header('📁 Gegevens')
-    uploaded=st.file_uploader('Upload je eBird-export (ZIP of CSV)',type=['zip','csv'])
-    st.caption('Upload het bestand in de app; zet je privéwaarnemingen niet op openbare GitHub.')
-if uploaded is None:
-    st.info('👈 Upload links je oorspronkelijke eBird ZIP-bestand.')
+    uploaded = st.file_uploader('Optioneel: nieuwere eBird-export (ZIP of CSV)', type=['zip', 'csv'])
+    st.caption('Standaard wordt de meegeleverde export automatisch geladen.')
+if uploaded is not None:
+    source_bytes, source_name = uploaded.getvalue(), uploaded.name
+elif DATA_FILE.is_file():
+    source_bytes, source_name = DATA_FILE.read_bytes(), DATA_FILE.name
+else:
+    st.error('Geen standaardbestand gevonden: data/ebird.zip. Upload een eBird-export via de zijbalk.')
     st.stop()
-try: raw=load_data(uploaded.getvalue(),uploaded.name)
-except Exception as exc: st.error(f'Bestand kon niet worden gelezen: {exc}');st.stop()
+try:
+    raw = load_data(source_bytes, source_name)
+except Exception as exc:
+    st.error(f'Bestand kon niet worden gelezen: {exc}')
+    st.stop()
 df=raw[raw['Species valid']].copy()
 if df.empty:st.error('Geen eenduidig bepaalde soorten gevonden.');st.stop()
 first=df.sort_values('Date').drop_duplicates('Scientific Name').copy()
