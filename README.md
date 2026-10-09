@@ -1,16 +1,12 @@
-# My Birding Life – versie 4
+# My Birding Life – versie 5
 
-Nieuwe onderdelen:
+- Heatmap direct boven de lifers, kleuren van lichtoranje tot donkerrood.
+- Automatische koppeling aan de officiële eBird/Clements Checklist v2025 (Cornell).
+- Cirkelkaart: vogelordes en Passeriformes-families, met wereldtotaal, gezien en percentage.
 
-- Wereldwijde heatmap met **unieke soorten per rastercel**, instelbare resolutie.
-- Cirkelkaart met vogelordes en Passeriformes uitgesplitst naar families. Voor correcte wereldtotalen en percentages is een wereldwijde taxonomische checklist nodig.
+## GitHub update
+Vervang `app.py` en `extra_sections.py` in je repository. `requirements.txt` en `data/ebird.zip` kunnen blijven staan.
 
-## Installatie in bestaande GitHub-repository
+De app downloadt de Clements CSV bij de eerste start (internet vereist). Als Cornell tijdelijk niet bereikbaar is, kun je de officiële CSV downloaden van https://www.birds.cornell.edu/clementschecklist/introduction/updateindex/october-2025/2025-citation-checklist-downloads/ en opslaan als `data/taxonomy.csv`.
 
-Vervang `app.py` en `requirements.txt`, voeg `extra_sections.py` toe, en laat `data/ebird.zip` staan. Streamlit Community Cloud herstart automatisch.
-
-## Taxonomie
-
-Voeg optioneel `data/taxonomy.csv` toe met kolommen `scientific name`, `order`, `family`, en optioneel `category` (met `species` voor volledige soorten). Gebruik een complete wereldwijde soortenlijst uit één consistente taxonomie, bij voorkeur eBird/Clements. Zonder deze referentie toont de app de heatmap wel, maar geen misleidende cirkelpercentages.
-
-De geüploade eBird-data is publiek als de repository publiek is.
+**Taxonomische kanttekening:** historische waarnemingsnamen worden exact gekoppeld aan de huidige checklist; oude synoniemen/splits kunnen daardoor als niet-gekoppeld worden gerapporteerd. De app toont het aantal niet-gekoppelde namen.

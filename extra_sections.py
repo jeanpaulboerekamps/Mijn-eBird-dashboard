@@ -1,4 +1,5 @@
 import io
+import requests
 import math
 import pandas as pd
 import plotly.express as px
@@ -7,24 +8,35 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge, Circle
 from pathlib import Path
 
+OFFICIAL_CLEMENTS_2025 = 'https://www.birds.cornell.edu/clementschecklist/wp-content/uploads/2025/10/Clements_v2025-October-2025.csv'
+
+@st.cache_data(ttl=60*60*24*30, show_spinner='Officiele eBird/Clements-taxonomie ophalen…')
+def fetch_official_taxonomy():
+    response = requests.get(OFFICIAL_CLEMENTS_2025, timeout=45, headers={'User-Agent':'MyBirdingLife/4.1'})
+    response.raise_for_status()
+    if len(response.content) < 100000:
+        raise ValueError('Download van de taxonomie lijkt onvolledig.')
+    return response.content
+
 @st.cache_data
 def read_taxonomy(data):
-    tax = pd.read_csv(io.BytesIO(data), low_memory=False)
-    aliases = {'scientific name':['scientific name','scientific_name','sci_name','scientificname'], 'order':['order','order_name'], 'family':['family','family_name'], 'category':['category']}
+    tax = pd.read_csv(io.BytesIO(data), low_memory=False, encoding='utf-8-sig')
+    aliases = {
+      'scientific name':['scientific name','scientific_name','sci_name','scientificname'],
+      'order':['order','order_name'], 'family':['family','family_name'], 'category':['category']}
     cols={str(c).strip().lower():c for c in tax.columns}
     found={key:next((cols[a] for a in options if a in cols),None) for key,options in aliases.items()}
-    if not all(found[k] for k in ('scientific name','order','family')):
-        raise ValueError('CSV moet kolommen scientific name, order en family bevatten (hoofdletterongevoelig).')
-    out=tax.rename(columns={v:k for k,v in found.items() if v is not None}).copy()
-    if found['category']:
-        out=out[out['category'].astype(str).str.lower().eq('species')]
+    if not all(found[k] for k in ('scientific name','order','family','category')):
+        raise ValueError('Taxonomiebestand mist scientific name, order, family of category.')
+    out=tax.rename(columns={v:k for k,v in found.items()}).copy()
+    out=out[out['category'].astype(str).str.strip().str.casefold().eq('species')]
     out=out.dropna(subset=['scientific name','order','family'])
     out['scientific name']=out['scientific name'].astype(str).str.strip()
     out=out[out['scientific name'].str.fullmatch(r'[A-Z][A-Za-z-]+ [a-z][A-Za-z-]+')]
     return out.drop_duplicates('scientific name')
 
 def render_heatmap(df):
-    st.subheader('7. Wereldkaart — soortenrijkdom van je waarnemingen')
+    st.subheader('6. Heatmap — soortenrijkdom van je waarnemingen')
     st.caption('Elke cel toont het aantal **verschillende soorten** dat je daar hebt waargenomen; geen optelling van individuele vogels of checklists. Zoom in om hotspots te bekijken.')
     if not {'Latitude','Longitude'}.issubset(df.columns):
         st.warning('Coördinaten ontbreken in deze export.')
@@ -41,26 +53,32 @@ def render_heatmap(df):
     coords['lat_cell']=((coords.Latitude+90)//resolution*resolution-90+resolution/2).round(5)
     coords['lon_cell']=((coords.Longitude+180)//resolution*resolution-180+resolution/2).round(5)
     cells=coords.groupby(['lat_cell','lon_cell'])['Scientific Name'].nunique().reset_index(name='Soorten')
-    fig=px.density_map(cells,lat='lat_cell',lon='lon_cell',z='Soorten',radius=18,zoom=1,map_style='open-street-map',color_continuous_scale='YlGn',hover_data={'Soorten':True,'lat_cell':False,'lon_cell':False})
+    fig=px.density_map(cells,lat='lat_cell',lon='lon_cell',z='Soorten',radius=18,zoom=1,map_style='open-street-map',color_continuous_scale=['#fff2dc','#ffbd69','#f47b20','#c93413','#65000b'],hover_data={'Soorten':True,'lat_cell':False,'lon_cell':False})
     fig.update_layout(height=620,margin=dict(l=0,r=0,t=0,b=0),coloraxis_colorbar_title='Soorten')
     st.plotly_chart(fig,use_container_width=True)
     st.caption('De kleur toont een vloeiende weergave van de aantallen per rastercel; naast elkaar liggende cellen kunnen visueel overlappen. Rastercoördinaten zijn afgerond, niet de exacte waarnemingslocaties.')
 
 def render_taxonomy(df):
-    st.subheader('8. Vogelordes en zangvogelfamilies — jouw dekking')
+    st.subheader('7. Vogelordes en zangvogelfamilies — jouw dekking')
     st.caption('Elke cirkel vertegenwoordigt een orde, behalve Passeriformes: die is uitgesplitst in families. Cirkeloppervlak = totaal aantal erkende soorten in de referentielijst. Donker segment = jouw aandeel.')
     path=Path(__file__).resolve().parent/'data'/'taxonomy.csv'
-    with st.expander('Taxonomische referentielijst',expanded=not path.exists()):
-        st.write('Voor betrouwbare wereldtotalen en percentages is een **volledige wereldwijde vogelchecklist** nodig, met de kolommen `scientific name`, `order`, `family` en liefst `category` (species). De eBird-waarnemingsexport bevat deze taxonomische indeling en wereldtotalen niet.')
-        upload=st.file_uploader('Optioneel: complete taxonomische CSV',type=['csv'],key='taxonomy_upload')
-        st.caption('Je kunt `data/taxonomy.csv` in GitHub zetten om deze lijst automatisch te laden. Gebruik bij voorkeur dezelfde taxonomie als je eBird-export.')
-    if upload:
+    with st.expander('Bron: officiele eBird/Clements v2025', expanded=False):
+        st.markdown('[Cornell — downloadpagina](https://www.birds.cornell.edu/clementschecklist/introduction/updateindex/october-2025/2025-citation-checklist-downloads/)')
+        st.caption('De app haalt automatisch de officiele Clements Checklist v2025 op. Een lokaal bestand data/taxonomy.csv kan als reserve dienen.')
+    try:
+        if path.exists():
+            taxbytes=path.read_bytes()
+            st.caption('Taxonomiebron: data/taxonomy.csv (lokaal).')
+        else:
+            taxbytes=fetch_official_taxonomy()
+            st.caption('Taxonomiebron: Cornell eBird/Clements v2025 (automatisch opgehaald).')
+    except Exception as exc:
+        st.warning(f'Officiele taxonomie tijdelijk niet bereikbaar: {exc}')
+        upload=st.file_uploader('Upload desgewenst de officiele Clements CSV als reserve', type=['csv'], key='taxonomy_fallback')
+        if upload is None:
+            st.info('Download Clements v2025 CSV van Cornell en plaats deze in GitHub onder data/taxonomy.csv voor offline beschikbaarheid.')
+            return
         taxbytes=upload.getvalue()
-    elif path.exists():
-        taxbytes=path.read_bytes()
-    else:
-        st.info('De cirkelkaart verschijnt zodra je een volledige taxonomische checklist toevoegt. Ik toon geen verzonnen wereldtotalen of percentages.')
-        return
     try: tax=read_taxonomy(taxbytes)
     except Exception as exc:
         st.error(f'Checklist kon niet worden gelezen: {exc}')

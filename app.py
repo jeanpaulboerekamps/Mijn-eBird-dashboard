@@ -176,6 +176,10 @@ with st.expander('Landenranglijst en soorten bekijken'):
     sub=df[df.Country==detail].sort_values('Date').drop_duplicates('Scientific Name')
     st.dataframe(sub[['Common Name','Scientific Name','Date','Location']].rename(columns={'Common Name':'Engelse naam','Scientific Name':'Wetenschappelijke naam','Date':'Eerste waarneming','Location':'Locatie'}),hide_index=True,use_container_width=True)
 
+# De heatmap staat direct voor de lifergalerij.
+from extra_sections import render_heatmap, render_taxonomy
+render_heatmap(filtered)
+
 st.subheader('6. Nieuwste lifers met iNaturalist-foto’s')
 st.caption('Alleen eenduidige volledige soorten (binomiale namen); geen ondersoorten, hybriden of soortgroepen. Eerste waarneming, nieuwste eerst.')
 search=st.text_input('Zoek vogelsoort of locatie')
@@ -203,7 +207,5 @@ for start in range(0,len(show),3):
                 else:st.link_button('Zoek op iNaturalist',f'https://www.inaturalist.org/search?q={quote(r["Scientific Name"])}',use_container_width=True)
 st.caption('Taxonomische kanttekening: deze strenge naamfilter sluit onduidelijke taxa uit, maar controleert niet volledig tegen de actuele eBird/Clements-taxonomie. Een ondersoortwaarneming wordt niet automatisch omgezet naar een soortwaarneming.')
 
-# Aanvullende visualisaties
-from extra_sections import render_heatmap, render_taxonomy
-render_heatmap(filtered)
+# Officiele taxonomische dekking
 render_taxonomy(df)
