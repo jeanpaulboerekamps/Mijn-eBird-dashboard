@@ -202,3 +202,8 @@ for start in range(0,len(show),3):
                 if photo:st.link_button('Bekijk foto op iNaturalist',photo['taxon_url'],use_container_width=True)
                 else:st.link_button('Zoek op iNaturalist',f'https://www.inaturalist.org/search?q={quote(r["Scientific Name"])}',use_container_width=True)
 st.caption('Taxonomische kanttekening: deze strenge naamfilter sluit onduidelijke taxa uit, maar controleert niet volledig tegen de actuele eBird/Clements-taxonomie. Een ondersoortwaarneming wordt niet automatisch omgezet naar een soortwaarneming.')
+
+# Aanvullende visualisaties
+from extra_sections import render_heatmap, render_taxonomy
+render_heatmap(filtered)
+render_taxonomy(df)
