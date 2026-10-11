@@ -86,8 +86,10 @@ def render_taxonomy(df):
     seen=set(df['Scientific Name'].dropna().unique())
     tax['seen']=tax['scientific name'].isin(seen)
     tax['groep']=tax.apply(lambda r:r['family'] if str(r['order']).strip().casefold()=='passeriformes' else r['order'],axis=1)
-    stats=tax.groupby('groep').agg(totaal=('scientific name','nunique'),gezien=('seen','sum')).reset_index()
-    stats=stats.sort_values('totaal',ascending=False).reset_index(drop=True)
+    stats=tax.groupby('groep',sort=False).agg(totaal=('scientific name','nunique'),gezien=('seen','sum')).reset_index()
+    # Volgorde van eerste voorkomen in de officiele taxonomische lijst.
+    stats['taxon_rank']=stats['groep'].map({name:i for i,name in enumerate(tax['groep'].drop_duplicates())})
+    stats=stats.sort_values('taxon_rank').reset_index(drop=True)
     unmatched=len(seen-set(tax['scientific name']))
     st.caption(f'{len(tax):,} soorten in de referentielijst · {len(seen & set(tax["scientific name"])):,} van jouw soorten gekoppeld · {unmatched:,} niet gekoppeld (bijvoorbeeld door taxonomische verschillen).'.replace(',','.'))
     if stats.empty:return

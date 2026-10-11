@@ -127,8 +127,9 @@ byfirst=first.groupby('First year')['Scientific Name'].nunique().reindex(range(m
 growth=byfirst.cumsum().reset_index();growth.columns=['Jaar','Soorten']
 st.subheader('1. Groei van je Life List')
 st.caption(f'Totaal: **{df["Scientific Name"].nunique():,} soorten** — van {min_year} tot {max_year}'.replace(',','.'))
-fig=px.line(growth,x='Jaar',y='Soorten',markers=True,custom_data=['Soorten'])
-fig.update_traces(line_color='#13795b',line_width=3,hovertemplate='%{x}: %{y:,} soorten<extra></extra>')
+fig=px.bar(growth,x='Jaar',y='Soorten',text='Soorten',color_discrete_sequence=['#13795b'])
+fig.update_traces(textposition='outside',textfont_size=10,cliponaxis=False,hovertemplate='%{x}: %{y:,} soorten<extra></extra>')
+fig.update_xaxes(type='category',nticks=15)
 fig.update_layout(height=400,hovermode='x unified',margin=dict(l=15,r=15,t=20,b=10))
 st.plotly_chart(fig,use_container_width=True)
 
@@ -176,9 +177,10 @@ with st.expander('Landenranglijst en soorten bekijken'):
     sub=df[df.Country==detail].sort_values('Date').drop_duplicates('Scientific Name')
     st.dataframe(sub[['Common Name','Scientific Name','Date','Location']].rename(columns={'Common Name':'Engelse naam','Scientific Name':'Wetenschappelijke naam','Date':'Eerste waarneming','Location':'Locatie'}),hide_index=True,use_container_width=True)
 
-# De heatmap staat direct voor de lifergalerij.
+# Heatmap en taxonomische cirkels direct voor de lifergalerij.
 from extra_sections import render_heatmap, render_taxonomy
 render_heatmap(filtered)
+render_taxonomy(df)
 
 st.subheader('6. Nieuwste lifers met iNaturalist-foto’s')
 st.caption('Alleen eenduidige volledige soorten (binomiale namen); geen ondersoorten, hybriden of soortgroepen. Eerste waarneming, nieuwste eerst.')
@@ -207,5 +209,4 @@ for start in range(0,len(show),3):
                 else:st.link_button('Zoek op iNaturalist',f'https://www.inaturalist.org/search?q={quote(r["Scientific Name"])}',use_container_width=True)
 st.caption('Taxonomische kanttekening: deze strenge naamfilter sluit onduidelijke taxa uit, maar controleert niet volledig tegen de actuele eBird/Clements-taxonomie. Een ondersoortwaarneming wordt niet automatisch omgezet naar een soortwaarneming.')
 
-# Officiele taxonomische dekking
-render_taxonomy(df)
+
