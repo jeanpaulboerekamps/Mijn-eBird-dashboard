@@ -101,8 +101,71 @@ try:
 except Exception as exc:
     st.error(f'Bestand kon niet worden gelezen: {exc}')
     st.stop()
-df=raw[raw['Species valid']].copy()
-if df.empty:st.error('Geen eenduidig bepaalde soorten gevonden.');st.stop()
+# Officiele eBird World Life List is leidend voor het actuele totaal.
+LIFE_FILE = Path(__file__).resolve().parent / 'data' / 'ebird_world_life_list.csv'
+@st.cache_data
+def load_official_life(data):
+    life = pd.read_csv(io.BytesIO(data), low_memory=False)
+    needed = {'Scientific Name', 'Category', 'Countable'}
+    if not needed.issubset(life.columns):
+        raise ValueError('De officiele Life List mist vereiste kolommen.')
+    life = life[(life['Category'].astype(str).str.lower() == 'species') &
+                (pd.to_numeric(life['Countable'], errors='coerce') == 1)].copy()
+    life['Scientific Name'] = life['Scientific Name'].astype(str).str.strip()
+    return life.drop_duplicates('Scientific Name')
+with st.sidebar:
+    official_upload = st.file_uploader('Optioneel: recentere eBird World Life List (CSV)', type=['csv'], key='official_life')
+try:
+    official_life = load_official_life(official_upload.getvalue() if official_upload is not None else LIFE_FILE.read_bytes()) if (official_upload is not None or LIFE_FILE.exists()) else None
+except Exception as exc:
+    st.warning(f'Officiele Life List niet leesbaar: {exc}')
+    official_life = None
+
+# Koppel ALLE historische taxonregels aan de telbare soorten van de actuele
+# eBird Life List. Een trinomiale ondersoort, groep of slash onder een soort
+# vertegenwoordigt dezelfde soort; een niet-telbaar taxon telt niet mee.
+# Match op volledige genus+soort-combinatie (niet op alleen de Engelse naam).
+@st.cache_data(show_spinner='Historische waarnemingen aan actuele eBird-soorten koppelen…')
+def reconcile_history(raw_data, official_data):
+    source = raw_data.copy()
+    source['Original Scientific Name'] = source['Scientific Name']
+    source['Species key'] = source['Scientific Name'].str.extract(
+        r'^([A-Z][A-Za-z-]+ [a-z][A-Za-z-]+)(?=$|[ \[])', expand=False)
+    if official_data is None:
+        source = source[source['Species valid']].copy()
+        source['Species key'] = source['Scientific Name']
+        return source, pd.DataFrame()
+    life = official_data[['Scientific Name','Common Name','Date','SubID']].copy()
+    life = life.rename(columns={'Scientific Name':'Canonical Scientific Name',
+                                'Common Name':'Canonical Common Name'})
+    accepted = set(life['Canonical Scientific Name'])
+    source = source[source['Species key'].isin(accepted)].copy()
+    source['Scientific Name'] = source['Species key']
+    common = life.drop_duplicates('Canonical Scientific Name').set_index('Canonical Scientific Name')['Canonical Common Name']
+    source['Common Name'] = source['Scientific Name'].map(common).fillna(source['Common Name'])
+    # Controleer dat iedere soort uit de officiële lijst terug te vinden is.
+    # Alleen voor echt ontbrekende soorten gebruiken we de in de officiële
+    # Life List vastgelegde eerste waarneming (inclusief locatie en checklist).
+    absent = life[~life['Canonical Scientific Name'].isin(source['Scientific Name'])].copy()
+    if not absent.empty:
+        supplemental = pd.DataFrame({c: [pd.NA]*len(absent) for c in source.columns})
+        supplemental['Scientific Name'] = absent['Canonical Scientific Name'].to_numpy()
+        supplemental['Common Name'] = absent['Canonical Common Name'].to_numpy()
+        supplemental['Original Scientific Name'] = absent['Canonical Scientific Name'].to_numpy()
+        supplemental['Date'] = pd.to_datetime(absent['Date'], errors='coerce', dayfirst=True).to_numpy()
+        supplemental['Submission ID'] = absent['SubID'].to_numpy()
+        supplemental['Year'] = supplemental['Date'].dt.year
+        supplemental['Species key'] = supplemental['Scientific Name']
+        supplemental['Species valid'] = True
+        supplemental['Source'] = 'Life List (datum)'
+        source['Source'] = 'Waarnemingsexport'
+        source = pd.concat([source, supplemental], ignore_index=True)
+    else:
+        source['Source'] = 'Waarnemingsexport'
+    return source, absent
+
+df, unresolved = reconcile_history(raw, official_life)
+if df.empty:st.error('Geen telbare soorten gevonden.');st.stop()
 first=df.sort_values('Date').drop_duplicates('Scientific Name').copy()
 first['First year']=first.Date.dt.year
 min_year,max_year=int(df.Year.min()),int(df.Year.max())
@@ -111,22 +174,33 @@ with st.sidebar:
     chosen=st.multiselect('Filter op land',countries,format_func=country_name)
     period=st.slider('Periode',min_year,max_year,(min_year,max_year))
     st.caption('De Life List en eerste-waarnemingsdatum worden altijd over de volledige historie bepaald.')
-    st.caption(f'{len(raw)-len(df):,} waarnemingsregels met niet-eenduidige taxa zijn uitgesloten van de soortentellingen.'.replace(',','.'))
+    st.caption('Soorten worden volgens de officiële eBird Life List geteld; ondersoorten en groepen worden naar hun soort teruggebracht.')
 filtered=df[df.Year.between(*period)]
 if chosen:filtered=filtered[filtered.Country.isin(chosen)]
 filtered_first=first[first['First year'].between(*period)]
 if chosen:filtered_first=filtered_first[filtered_first.Country.isin(chosen)]
 
 m1,m2,m3,m4=st.columns(4)
-m1.metric('Volledige soorten ooit',f'{df["Scientific Name"].nunique():,}'.replace(',','.'))
+m1.metric('Volledige soorten ooit',f'{(len(official_life) if official_life is not None else df["Scientific Name"].nunique()):,}'.replace(',','.'))
 m2.metric('Waarnemingsregels (soorten)',f'{len(df):,}'.replace(',','.'))
 m3.metric('Landen / gebieden',df.Country.nunique())
 m4.metric(f'Nieuwe soorten {max_year}',int((first['First year']==max_year).sum()))
 
 byfirst=first.groupby('First year')['Scientific Name'].nunique().reindex(range(min_year,max_year+1),fill_value=0)
 growth=byfirst.cumsum().reset_index();growth.columns=['Jaar','Soorten']
+if official_life is not None:
+    with st.expander('Controle: koppeling met officiële eBird Life List'):
+        st.write(f'Officiële telbare soorten: {len(official_life)}. '
+                 f'Gekoppelde soorten: {df["Scientific Name"].nunique()}. '
+                 f'Soorten zonder historische match: {len(unresolved)}.')
+        if not unresolved.empty:
+            st.dataframe(unresolved[['Canonical Common Name','Canonical Scientific Name','Date','SubID']],hide_index=True)
+        st.caption('Historische ondersoorten en groepen worden gekoppeld aan de bijbehorende telbare soort. '
+                   'Niet-telbare taxa worden niet meegenomen. Bij taxonomische splits met andere genus/soortnamen '
+                   'kan een expliciete taxonomische crosswalk nodig zijn.')
+
 st.subheader('1. Groei van je Life List')
-st.caption(f'Totaal: **{df["Scientific Name"].nunique():,} soorten** — van {min_year} tot {max_year}'.replace(',','.'))
+st.caption(f'Gekoppeld aan actuele eBird Life List: **{df["Scientific Name"].nunique():,} soorten** — van {min_year} tot {max_year}.' .replace(',','.') if official_life is not None else f'Totaal: **{df["Scientific Name"].nunique():,} soorten** — van {min_year} tot {max_year}'.replace(',','.'))
 fig=px.bar(growth,x='Jaar',y='Soorten',text='Soorten',color_discrete_sequence=['#13795b'])
 fig.update_traces(textposition='outside',textfont_size=10,cliponaxis=False,hovertemplate='%{x}: %{y:,} soorten<extra></extra>')
 fig.update_xaxes(type='category',nticks=15)
@@ -180,7 +254,7 @@ with st.expander('Landenranglijst en soorten bekijken'):
 # Heatmap en taxonomische cirkels direct voor de lifergalerij.
 from extra_sections import render_heatmap, render_taxonomy
 render_heatmap(filtered)
-render_taxonomy(df)
+render_taxonomy(df, official_names=set(official_life['Scientific Name']) if official_life is not None else None)
 
 st.subheader('6. Nieuwste lifers met iNaturalist-foto’s')
 st.caption('Alleen eenduidige volledige soorten (binomiale namen); geen ondersoorten, hybriden of soortgroepen. Eerste waarneming, nieuwste eerst.')

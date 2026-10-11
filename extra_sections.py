@@ -58,7 +58,7 @@ def render_heatmap(df):
     st.plotly_chart(fig,use_container_width=True)
     st.caption('De kleur toont een vloeiende weergave van de aantallen per rastercel; naast elkaar liggende cellen kunnen visueel overlappen. Rastercoördinaten zijn afgerond, niet de exacte waarnemingslocaties.')
 
-def render_taxonomy(df):
+def render_taxonomy(df, official_names=None):
     st.subheader('7. Vogelordes en zangvogelfamilies — jouw dekking')
     st.caption('Elke cirkel vertegenwoordigt een orde, behalve Passeriformes: die is uitgesplitst in families. Cirkeloppervlak = totaal aantal erkende soorten in de referentielijst. Donker segment = jouw aandeel.')
     path=Path(__file__).resolve().parent/'data'/'taxonomy.csv'
@@ -83,7 +83,7 @@ def render_taxonomy(df):
     except Exception as exc:
         st.error(f'Checklist kon niet worden gelezen: {exc}')
         return
-    seen=set(df['Scientific Name'].dropna().unique())
+    seen=official_names if official_names is not None else set(df['Scientific Name'].dropna().unique())
     tax['seen']=tax['scientific name'].isin(seen)
     tax['groep']=tax.apply(lambda r:r['family'] if str(r['order']).strip().casefold()=='passeriformes' else r['order'],axis=1)
     stats=tax.groupby('groep',sort=False).agg(totaal=('scientific name','nunique'),gezien=('seen','sum')).reset_index()
